@@ -1,5 +1,28 @@
 
 #include <engextcpp.hpp>
+#include <winternl.h>
+
+// Returns length of resulting string, excluding null-terminator.
+// Use LocalFree() to free the buffer when it is no longer needed.
+// Returns 0 upon failure, use GetLastError() to get error details.
+DWORD FormatNtStatus(NTSTATUS nsCode, char** ppszMessage) {
+
+    // Get handle to ntdll.dll.
+    HMODULE hNtDll = LoadLibraryA("NTDLL.DLL");
+
+    // Check for fail, user may use GetLastError() for details.
+    if(hNtDll == NULL) return 0;
+
+    // Call FormatMessage(), note use of RtlNtStatusToDosError().
+    DWORD dwRes = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_FROM_HMODULE,
+        hNtDll, RtlNtStatusToDosError(nsCode), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPTSTR) ppszMessage, 0, NULL);
+
+    // Free loaded dll module and decrease its reference count.
+    FreeLibrary(hNtDll);
+
+    return dwRes;
+}
 
 enum LogCategory
 {
@@ -135,8 +158,41 @@ EXT_COMMAND(wdlive,
     data[3] = Data3Mem.GetUlong64();
     data[4] = Data4Mem.GetUlong64();
 
-    Out("                       Data: % 016p % 016p % 016p % 016p % 016p\n",
-        data[0], data[1], data[2], data[3], data[4]);
+    const char* contextStrings[5] = { "", "", "", "", "" };
+
+    for(int i = 0; i < 5; ++i)
+    {
+        if(data[i] >> 32 != 0xFFFFFFFF)
+        {
+            continue;
+        }
+
+        if((data[i] & 0xF0000000) != 0xC0000000)
+        {
+            continue;
+        }
+
+        char* str;
+
+        FormatNtStatus(static_cast<NTSTATUS>(data[i] & 0xFFFFFFFF), &str);
+
+        if(str)
+        {
+            contextStrings[i] = str;
+        }
+    }
+
+    Out("                       Data: % 016p %s % 016p %s % 016p %s % 016p %s % 016p %s\n",
+        data[0], contextStrings[0], data[1], contextStrings[1], data[2], contextStrings[2], data[3], contextStrings[3], data[4], contextStrings[4]);
+
+
+    for(int i = 0; i < 5; ++i)
+    {
+        if(contextStrings[i][0] != '\0')
+        {
+            LocalFree(const_cast<char*>(contextStrings[i]));
+        }
+    }
 
     /*
     switch (category)
@@ -180,8 +236,41 @@ EXT_COMMAND(wdcurr,
     data[3] = Data3Mem.GetUlong64();
     data[4] = Data4Mem.GetUlong64();
 
-    Out("Data: % 016p % 016p % 016p % 016p % 016p\n",
-        data[0], data[1], data[2], data[3], data[4]);
+    const char* contextStrings[5] = { "", "", "", "", "" };
+
+    for(int i = 0; i < 5; ++i)
+    {
+        if(data[i] >> 32 != 0xFFFFFFFF)
+        {
+            continue;
+        }
+
+        if((data[i] & 0xF0000000) != 0xC0000000)
+        {
+            continue;
+        }
+
+        char* str;
+
+        FormatNtStatus(static_cast<NTSTATUS>(data[i] & 0xFFFFFFFF), &str);
+
+        if(str)
+        {
+            contextStrings[i] = str;
+        }
+    }
+
+    Out("Data: % 016p %s % 016p %s % 016p %s % 016p %s % 016p %s\n",
+        data[0], contextStrings[0], data[1], contextStrings[1], data[2], contextStrings[2], data[3], contextStrings[3], data[4], contextStrings[4]);
+
+
+    for(int i = 0; i < 5; ++i)
+    {
+        if(contextStrings[i][0] != '\0')
+        {
+            LocalFree(const_cast<char*>(contextStrings[i]));
+        }
+    }
 }
 
 EXT_COMMAND(wdlivebpinstall,
